@@ -1,37 +1,67 @@
 # MediBook: Clinic Appointment System
 
-Node.js, Express, MySQL (mysql2, parameterized queries only), Redis. No ORM.
+A clinic appointment booking backend built with Node.js, Express, MySQL and Redis.
+
+**Technology stack:** Node.js, Express, MySQL (`mysql2` with parameterized queries only), Redis. No ORM.
 
 ## Setup
 
-Requirements: Node 18+, Docker (for MySQL 8 and Redis), or your own MySQL 8.0.16+ and Redis.
+### Requirements
 
-1. Start MySQL and Redis (replace the password with your own):
+- Node.js 18+
+- Docker (for MySQL 8 and Redis), or your own MySQL 8.0.16+ and Redis installation.
 
-   docker run --name medibook-mysql -e 'MYSQL_ROOT_PASSWORD=your_password' -p 3306:3306 -d mysql:8
-   docker run --name medibook-redis -p 6379:6379 -d redis:7
+### 1. Start MySQL and Redis
 
-2. Create the database and load sample data.
+Replace the password with your own:
 
-   PowerShell:
-   Get-Content database\schema.sql | docker exec -i -e 'MYSQL_PWD=your_password' medibook-mysql mysql -uroot
-   Get-Content database\seed.sql | docker exec -i -e 'MYSQL_PWD=your_password' medibook-mysql mysql -uroot
+```bash
+docker run --name medibook-mysql -e MYSQL_ROOT_PASSWORD=your_password -p 3306:3306 -d mysql:8
 
-   Bash:
-   docker exec -i medibook-mysql mysql -uroot -pyour_password < database/schema.sql
-   docker exec -i medibook-mysql mysql -uroot -pyour_password < database/seed.sql
+docker run --name medibook-redis -p 6379:6379 -d redis:7
+```
 
-3. Copy `.env.example` to `.env` and set `DB_PASSWORD`. `.env` is git-ignored.
+### 2. Create the database and load sample data
 
-4. Install and run:
+**PowerShell:**
 
-   npm install
-   npm start          # web server on http://localhost:3000
-   npm run worker     # separate process: waitlist promotion and notifications
-   npm test           # Jest unit tests (no MySQL or Redis needed)
+```powershell
+Get-Content database\schema.sql | docker exec -i -e MYSQL_PWD=your_password medibook-mysql mysql -uroot
 
-### .env.example
+Get-Content database\seed.sql | docker exec -i -e MYSQL_PWD=your_password medibook-mysql mysql -uroot
+```
 
+**Bash:**
+
+```bash
+docker exec -i medibook-mysql mysql -uroot -pyour_password < database/schema.sql
+
+docker exec -i medibook-mysql mysql -uroot -pyour_password < database/seed.sql
+```
+
+### 3. Configure environment variables
+
+Copy `.env.example` to `.env` and configure `DB_PASSWORD`.
+
+The `.env` file is git-ignored.
+
+### 4. Install and run
+
+```bash
+npm install
+
+npm start          # Web server on http://localhost:3000
+
+npm run worker     # Separate process: waitlist promotion and notifications
+
+npm test           # Jest unit tests (no MySQL or Redis needed)
+```
+
+## Environment configuration
+
+### `.env.example`
+
+```env
 PORT=3000
 DB_HOST=localhost
 DB_PORT=3306
@@ -40,65 +70,119 @@ DB_PASSWORD=change_me
 DB_NAME=medibook
 REDIS_HOST=localhost
 REDIS_PORT=6379
+```
 
-## Structure
+## Project structure
 
-database/      schema.sql, seed.sql
-src/models/    all SQL (parameterized, `?` placeholders)
-src/controllers/ validation and business logic, never touches the DB directly
-src/routes/    URL and method mapping
-src/utils/     pure functions (refund, slot validation), audit logger, queue helpers
-src/workers/   worker process
-locales/       en.json, fr.json
-tests/         Jest tests
-schema-diagram.png   Part A diagram
+```text
+database/       schema.sql, seed.sql
+src/models/     All SQL (parameterized, ? placeholders)
+src/controllers/ Validation and business logic
+src/routes/     URL and method mapping
+src/utils/      Pure functions, audit logger, queue helpers
+src/workers/    Worker process
+locales/        en.json, fr.json
+tests/          Jest tests
+schema-diagram.png  Database schema diagram
+```
 
-## Endpoints
+## API endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET/POST | /api/patients | list, create |
-| GET/PUT/DELETE | /api/patients/:id | read, update, delete |
-| GET/POST | /api/doctors | list, create |
-| GET/PUT/DELETE | /api/doctors/:id | read, update, delete |
-| GET | /api/doctors/:id/stats | revenue, upcoming count, next 7 days, utilization |
-| POST | /api/appointments | book |
-| POST | /api/appointments/:id/cancel | cancel with refund |
-| POST | /api/waitlist | join a waitlist |
-| GET | /api/reports/doctors | every doctor's appointments and revenue |
-| GET | /api/reports/busy-days | doctor-days above 80% capacity |
-| GET | /feedback?lang=en\|fr | i18n feedback page |
+| GET/POST | `/api/patients` | List and create patients |
+| GET/PUT/DELETE | `/api/patients/:id` | Read, update and delete patients |
+| GET/POST | `/api/doctors` | List and create doctors |
+| GET/PUT/DELETE | `/api/doctors/:id` | Read, update and delete doctors |
+| GET | `/api/doctors/:id/stats` | Revenue, upcoming appointments, next 7 days and utilization |
+| POST | `/api/appointments` | Book an appointment |
+| POST | `/api/appointments/:id/cancel` | Cancel an appointment with refund |
+| POST | `/api/waitlist` | Join a waitlist |
+| GET | `/api/reports/doctors` | Every doctor's appointments and revenue |
+| GET | `/api/reports/busy-days` | Doctor-days above 80% capacity |
+| GET | `/feedback?lang=en\|fr` | Internationalized feedback page |
 
-Status codes: 201 created, 204 deleted, 400 bad input, 404 not found, 409 conflict (slot taken, day full, already cancelled, duplicate), 422 invalid slot (not on a 30-minute boundary, outside 09:00-17:00, in the past).
+### HTTP status codes
+
+- `201` – Resource created.
+- `204` – Resource deleted.
+- `400` – Invalid input.
+- `404` – Resource not found.
+- `409` – Conflict (slot taken, day full, already cancelled or duplicate).
+- `422` – Invalid appointment slot (not on a 30-minute boundary, outside 09:00–17:00 or in the past).
 
 ## Refund policy
 
-More than 48 hours before the appointment: 100%. From 24 hours up to and including 48 hours: 50%. Under 24 hours: 0%. So exactly 48h gives 50% and exactly 24h gives 50%. The Jest tests assert both boundaries. The refund is computed on the server from the appointment time and the amount paid.
+| Cancellation notice | Refund |
+|---|---:|
+| More than 48 hours | 100% |
+| From 24 hours up to and including 48 hours | 50% |
+| Under 24 hours | 0% |
 
-## Justifications
+Exactly 48 hours gives 50%, and exactly 24 hours gives 50%.
+
+The refund is calculated on the server using the appointment time and amount paid. Jest tests cover both boundaries.
+
+## Design justifications
 
 ### Part C: API and business rules
 
-- REST design: nouns for resources, HTTP verbs for actions. Cancel is `POST /appointments/:id/cancel` rather than DELETE, because cancelling keeps the row for refund history, so it is a state change, not a deletion. Doctor stats live under the doctor resource. Reports are under `/reports`.
-- No double booking: `appointments` has a stored generated column `active_slot` that equals `appt_datetime` when status is `booked` and NULL when cancelled, with `UNIQUE(doctor_id, active_slot)`. MySQL allows many NULLs in a unique index, so cancelled rows never block a slot, yet two active bookings can never share a doctor and time. This holds even when two requests arrive at the same instant, because the database rejects the second insert (ER_DUP_ENTRY), which the API maps to 409.
-- 12 per day cap: a unique index cannot enforce a count, so booking runs in a transaction that locks the doctor row with `SELECT ... FOR UPDATE`, counts that day's booked appointments, then inserts. Bookings for the same doctor are serialized, so the count cannot be raced.
-- Cancel and refund are atomic: one transaction locks the appointment row, computes the refund and updates status, refund_amount and cancelled_at together. A second cancel returns 409.
-- Reports: all aggregation is in SQL (LEFT JOIN so doctors with zero appointments appear, GROUP BY, HAVING for the 80% rule). Revenue is total amount paid minus total refunds.
-- Prices are stored as DECIMAL, and refund maths is done in cents to avoid floating-point errors.
+- **REST design:** Nouns represent resources and HTTP verbs represent actions. Cancellation uses `POST /appointments/:id/cancel` rather than DELETE because the appointment row is retained for refund history. Doctor statistics are nested under the doctor resource, while reports are under `/reports`.
 
-### Part D: audit log
+- **Preventing double booking:** The `appointments` table uses a stored generated column, `active_slot`, which equals `appt_datetime` when status is `booked` and NULL when cancelled. A `UNIQUE(doctor_id, active_slot)` constraint prevents two active bookings from sharing the same doctor and time. MySQL permits multiple NULL values in a unique index, so cancelled appointments do not block slots. Duplicate insert errors (`ER_DUP_ENTRY`) are mapped to HTTP 409.
 
-`src/utils/auditLogger.js` uses `fs.promises` only (no `*Sync` in request handlers). It creates `logs/` on first write with `mkdir({ recursive: true })` and appends one JSON line per event. The function catches its own errors and is not awaited by the controllers, so a logging failure can never fail or slow the user's request.
+- **12 appointments per day:** Booking runs in a transaction that locks the doctor row using `SELECT ... FOR UPDATE`, counts that day's booked appointments, and then inserts the new appointment. This serializes bookings for the same doctor and prevents concurrent requests from exceeding the daily limit.
 
-### Part E: queues and Redis
+- **Atomic cancellation and refund:** A single transaction locks the appointment row, calculates the refund and updates the status, refund amount and cancellation timestamp together. A second cancellation returns HTTP 409.
 
-- Waitlist: one Redis list per doctor and day (`waitlist:<doctorId>:<date>`). A full day or taken slot returns 409 with `waitlist_offered: true`, and the patient joins with `POST /api/waitlist`.
-- Cancellation pushes a job on `queue:promote`. A separate worker process (`npm run worker`) blocks on it, so the web server never does promotion work.
-- Patient never vanishes: the worker moves the first waitlisted entry with `LMOVE` into `waitlist:processing` instead of popping it, so the patient is always in one list or the other. On success the entry is removed from processing. If the slot was retaken, the day is full again or the database errors, the entry goes back to the front of the waitlist in one atomic MULTI. If the worker crashes mid-promotion, `recoverStuck()` returns processing entries to their waitlists on startup. Entries for deleted patients or doctors are dropped and logged.
-- Failed jobs are retried up to 3 times, then logged as `job_failed`.
-- Notifications: every confirmed booking (direct or promoted) enqueues a job on `queue:notify`. The worker writes the confirmation message to the audit log as a `notification` event.
-- Limitation: the worker books the freed slot for the first waiting patient of that doctor and day, which may differ from the exact time they originally asked for.
+- **Reports:** Aggregation happens in SQL using `LEFT JOIN`, `GROUP BY` and `HAVING`. Doctors with zero appointments are included. Revenue is total amount paid minus total refunds.
+
+- **Financial precision:** Prices are stored as DECIMAL, and refund calculations use cents to avoid floating-point errors.
+
+### Part D: Audit logging
+
+`src/utils/auditLogger.js` uses `fs.promises` only, avoiding synchronous filesystem operations in request handlers.
+
+It creates the `logs/` directory on the first write using `mkdir({ recursive: true })` and appends one JSON line per event.
+
+The logger handles its own errors and is not awaited by controllers, ensuring that logging failures cannot fail or slow down a user's request.
+
+### Part E: Queues and Redis
+
+- **Waitlist:** One Redis list per doctor and day (`waitlist:<doctorId>:<date>`). A fully booked slot or day returns HTTP 409 with `waitlist_offered: true`. Patients can join using `POST /api/waitlist`.
+
+- **Background promotion:** Cancellation pushes a job onto `queue:promote`. A separate worker process (`npm run worker`) processes jobs, keeping promotion work outside the web server.
+
+- **Patient safety:** The worker moves the first waitlisted entry using `LMOVE` into `waitlist:processing` instead of simply popping it. This ensures that the patient remains in one list or the other. After successful promotion, the entry is removed from processing.
+
+- **Failed promotion:** If the slot has been retaken, the day is full, or the database operation fails, the entry is returned to the front of the waitlist using an atomic `MULTI` operation.
+
+- **Crash recovery:** If the worker crashes during promotion, `recoverStuck()` returns processing entries to their waitlists on startup. Entries belonging to deleted patients or doctors are dropped and logged.
+
+- **Job retries:** Failed jobs are retried up to three times and then logged as `job_failed`.
+
+- **Notifications:** Every confirmed booking, whether direct or promoted, enqueues a job on `queue:notify`. The worker writes the confirmation message to the audit log as a `notification` event.
+
+- **Limitation:** The worker books the freed slot for the first waiting patient of that doctor and day, which may differ from the exact time they originally requested.
 
 ## Tests
 
-`npm test` runs 14 Jest tests: refund tiers and both boundaries, and slot validation (valid slot, 16:30, 17:00, 09:15, 08:30, malformed input, impossible date, past time). They need no database or Redis.
+Run:
+
+```bash
+npm test
+```
+
+The Jest suite contains 14 tests covering:
+
+- Refund calculation across all three tiers.
+- Both refund boundaries (24 and 48 hours).
+- Valid appointment slots.
+- Working-hours boundaries (16:30 and 17:00).
+- Invalid slot alignment (09:15).
+- Outside working hours (08:30).
+- Malformed input.
+- Impossible dates.
+- Past appointment times.
+
+Tests do not require a live MySQL or Redis connection.
