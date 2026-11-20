@@ -6,8 +6,7 @@ async function book({ patientId, doctorId, apptDatetime }) {
   try {
     await conn.beginTransaction();
 
-    // Lock the doctor row: bookings for the same doctor are serialized,
-    // so the daily count below cannot be raced.
+    // Lock the doctor row so bookings for the same doctor are serialized.
     const [docs] = await conn.query(
       'SELECT doctor_id, consultation_fee FROM doctors WHERE doctor_id = ? FOR UPDATE',
       [doctorId]
@@ -36,10 +35,38 @@ async function book({ patientId, doctorId, apptDatetime }) {
       return { appointmentId: r.insertId };
     } catch (err) {
       await conn.rollback();
-      // Unique index on (doctor_id, active_slot): slot already held
       if (err.code === 'ER_DUP_ENTRY') return { slotTaken: true };
       throw err;
     }
+  } catch (err) {
+    try { await conn.rollback(); } catch (_) {}
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+// Cancels atomically: lock row, compute refund, update, all in one transaction.
+async function cancel(id, computeRefund) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query(
+      'SELECT * FROM appointments WHERE appointment_id = ? FOR UPDATE', [id]
+    );
+    if (rows.length === 0) { await conn.rollback(); return { notFound: true }; }
+    const appt = rows[0];
+    if (appt.status === 'cancelled') { await conn.rollback(); return { already: true }; }
+
+    const { percent, amount } = computeRefund(appt);
+    await conn.query(
+      `UPDATE appointments
+       SET status = 'cancelled', refund_amount = ?, cancelled_at = NOW()
+       WHERE appointment_id = ?`,
+      [amount, id]
+    );
+    await conn.commit();
+    return { appt, percent, amount };
   } catch (err) {
     try { await conn.rollback(); } catch (_) {}
     throw err;
@@ -55,4 +82,4 @@ async function findById(id) {
   return rows[0] || null;
 }
 
-module.exports = { book, findById };
+module.exports = { book, cancel, findById };

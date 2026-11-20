@@ -1,6 +1,7 @@
 ﻿const Appointment = require('../models/appointmentModel');
 const AppError = require('../utils/AppError');
 const { validateSlot } = require('../utils/slotValidation');
+const { calculateRefund } = require('../utils/refund');
 
 exports.book = async (req, res) => {
   const { patient_id, doctor_id, appt_datetime } = req.body || {};
@@ -18,9 +19,7 @@ exports.book = async (req, res) => {
   // Normalise to "YYYY-MM-DD HH:MM:00" for MySQL
   const normalised = appt_datetime.trim().replace('T', ' ').slice(0, 16) + ':00';
 
-  const result = await Appointment.book({
-    patientId, doctorId, apptDatetime: normalised,
-  });
+  const result = await Appointment.book({ patientId, doctorId, apptDatetime: normalised });
 
   if (result.noDoctor) throw new AppError(404, 'Doctor not found');
   if (result.noPatient) throw new AppError(404, 'Patient not found');
@@ -28,4 +27,22 @@ exports.book = async (req, res) => {
   if (result.full) throw new AppError(409, 'Doctor is fully booked for that day');
 
   res.status(201).json(await Appointment.findById(result.appointmentId));
+};
+
+exports.cancel = async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) throw new AppError(400, 'id must be a positive integer');
+
+  const result = await Appointment.cancel(id, (a) =>
+    calculateRefund(a.amount_paid, a.appt_datetime.replace(' ', 'T'))
+  );
+  if (result.notFound) throw new AppError(404, 'Appointment not found');
+  if (result.already) throw new AppError(409, 'Appointment is already cancelled');
+
+  res.json({
+    appointment_id: id,
+    status: 'cancelled',
+    refund_percent: result.percent,
+    refund_amount: result.amount,
+  });
 };
