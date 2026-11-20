@@ -1,5 +1,9 @@
 ﻿module.exports = (err, req, res, next) => {
-  if (err.status) return res.status(err.status).json({ error: err.message });
+  if (err.status) {
+    const body = { error: err.message };
+    if (err.waitlistOffered) body.waitlist_offered = true;
+    return res.status(err.status).json(body);
+  }
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: 'Request body is not valid JSON' });
   }
