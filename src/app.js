@@ -5,6 +5,7 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 app.use(express.json());
 
+app.use('/feedback', require('./routes/feedbackRoutes'));
 app.use('/api/patients', require('./routes/patientRoutes'));
 app.use('/api/doctors', require('./routes/doctorRoutes'));
 app.use('/api/appointments', require('./routes/appointmentRoutes'));
