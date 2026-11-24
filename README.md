@@ -4,6 +4,9 @@ A clinic appointment booking backend built with Node.js, Express, MySQL and Redi
 
 **Technology stack:** Node.js, Express, MySQL (`mysql2` with parameterized queries only), Redis. No ORM.
 
+## DEMO: https://youtu.be/P8qBMpgHqvw
+
+
 ## Setup
 
 ### Requirements
